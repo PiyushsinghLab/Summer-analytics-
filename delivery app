@@ -1,0 +1,57 @@
+const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
+
+const app = express();
+const server = http.createServer(app);
+const io = socketIo(server);
+
+app.use(express.json());
+
+// 1. MOCK DATABASE (In production, use PostgreSQL/MongoDB)
+let orders = [];
+let drivers = [
+  { id: 'd1', name: 'Alex', lat: 40.7128, lng: -74.0060, status: 'available' }
+];
+
+// 2. API: PLACE AN ORDER
+app.post('/api/order', (req, res) => {
+  const { customerId, restaurantId, items, deliveryLat, deliveryLng } = req.body;
+  
+  const newOrder = {
+    id: `ORD-${Date.now()}`,
+    customerId,
+    restaurantId,
+    status: 'PLACED',
+    location: { lat: deliveryLat, lng: deliveryLng }
+  };
+
+  orders.push(newOrder);
+  
+  // Notify restaurant via Socket
+  io.emit('newOrderForRestaurant', newOrder);
+  
+  res.status(201).json({ success: true, order: newOrder });
+});
+
+// 3. REAL-TIME: DRIVER LOCATION TRACKING
+io.on('connection', (socket) => {
+  console.log('User connected:', socket.id);
+
+  // Driver joins a room for a specific order
+  socket.on('joinOrder', (orderId) => {
+    socket.join(orderId);
+  });
+
+  // When driver moves, update everyone tracking that order
+  socket.on('updateDriverLocation', ({ orderId, lat, lng }) => {
+    // In a real app, update the DB here
+    io.to(orderId).emit('driverMoved', { lat, lng });
+  });
+});
+
+// 4. START SERVER
+const PORT = 3000;
+server.listen(PORT, () => {
+  console.log(`Food Delivery Engine running on port ${PORT}`);
+});
